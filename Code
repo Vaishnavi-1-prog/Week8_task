@@ -1,0 +1,208 @@
+# inventory_system.py
+"""
+Inventory Management System (simple CLI)
+Files used:
+ - products.csv  -> columns: product_id,name,price,stock
+ - sales.csv     -> columns: sale_id,product_id,quantity,unit_price,total,datetime
+"""
+
+import csv
+import os
+from datetime import datetime
+
+PRODUCTS_FILE = "products.csv"
+SALES_FILE = "sales.csv"
+
+# ---------- Helper IO functions ----------
+def ensure_files():
+    # Create files with headers if they don't exist
+    if not os.path.exists(PRODUCTS_FILE):
+        with open(PRODUCTS_FILE, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["product_id", "name", "price", "stock"])
+    if not os.path.exists(SALES_FILE):
+        with open(SALES_FILE, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["sale_id", "product_id", "quantity", "unit_price", "total", "datetime"])
+
+def read_products():
+    products = {}
+    try:
+        with open(PRODUCTS_FILE, "r", newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                pid = row["product_id"]
+                products[pid] = {
+                    "name": row["name"],
+                    "price": float(row["price"]),
+                    "stock": int(row["stock"])
+                }
+    except FileNotFoundError:
+        ensure_files()
+    return products
+
+def write_products(products):
+    with open(PRODUCTS_FILE, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["product_id", "name", "price", "stock"])
+        for pid, p in products.items():
+            writer.writerow([pid, p["name"], f"{p['price']:.2f}", p["stock"]])
+
+def append_sale(sale_record):
+    with open(SALES_FILE, "a", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            sale_record["sale_id"],
+            sale_record["product_id"],
+            sale_record["quantity"],
+            f"{sale_record['unit_price']:.2f}",
+            f"{sale_record['total']:.2f}",
+            sale_record["datetime"]
+        ])
+
+# ---------- Core operations ----------
+def add_product(products):
+    pid = input("Product ID: ").strip()
+    if pid in products:
+        print("Product ID already exists.")
+        return
+    name = input("Name: ").strip()
+    try:
+        price = float(input("Price: ").strip())
+        stock = int(input("Initial stock: ").strip())
+    except ValueError:
+        print("Invalid numeric input. Aborting add.")
+        return
+    products[pid] = {"name": name, "price": price, "stock": stock}
+    write_products(products)
+    print("Product added.")
+
+def update_stock(products):
+    pid = input("Product ID: ").strip()
+    if pid not in products:
+        print("Product not found.")
+        return
+    try:
+        add_qty = int(input("Quantity to add (use negative to reduce): ").strip())
+    except ValueError:
+        print("Invalid quantity.")
+        return
+    products[pid]["stock"] += add_qty
+    if products[pid]["stock"] < 0:
+        print("Warning: stock became negative. Setting to 0.")
+        products[pid]["stock"] = 0
+    write_products(products)
+    print("Stock updated.")
+
+def record_sale(products):
+    pid = input("Product ID: ").strip()
+    if pid not in products:
+        print("Product not found.")
+        return
+    try:
+        qty = int(input("Quantity sold: ").strip())
+    except ValueError:
+        print("Invalid quantity.")
+        return
+    if qty <= 0:
+        print("Quantity must be positive.")
+        return
+    if products[pid]["stock"] < qty:
+        print(f"Insufficient stock. Available: {products[pid]['stock']}")
+        return
+    unit_price = products[pid]["price"]
+    total = unit_price * qty
+    # Reduce stock
+    products[pid]["stock"] -= qty
+    write_products(products)
+    # Create sale record
+    sale_id = f"S{int(datetime.now().timestamp())}"
+    sale_record = {
+        "sale_id": sale_id,
+        "product_id": pid,
+        "quantity": qty,
+        "unit_price": unit_price,
+        "total": total,
+        "datetime": datetime.now().isoformat()
+    }
+    append_sale(sale_record)
+    print(f"Sale recorded. Total: {total:.2f}")
+
+def view_products(products):
+    print("Product List:")
+    for pid, p in products.items():
+        print(f"{pid} | {p['name']} | Price: {p['price']:.2f} | Stock: {p['stock']}")
+
+def generate_reports():
+    # Basic reports: top products by revenue, stock alert, monthly revenue
+    try:
+        with open(SALES_FILE, "r", newline="") as f:
+            reader = csv.DictReader(f)
+            sales = list(reader)
+    except FileNotFoundError:
+        print("No sales data found.")
+        return
+
+    # Top products by revenue
+    revenue_by_product = {}
+    for s in sales:
+        pid = s["product_id"]
+        total = float(s["total"])
+        revenue_by_product[pid] = revenue_by_product.get(pid, 0.0) + total
+
+    top_products = sorted(revenue_by_product.items(), key=lambda x: x[1], reverse=True)
+    print("Top products by revenue:")
+    for pid, rev in top_products[:10]:
+        print(f"{pid}: {rev:.2f}")
+
+    # Monthly revenue
+    revenue_by_month = {}
+    for s in sales:
+        dt = s["datetime"]
+        month = dt[:7]  # YYYY-MM
+        total = float(s["total"])
+        revenue_by_month[month] = revenue_by_month.get(month, 0.0) + total
+
+    print("\nMonthly revenue:")
+    for month, rev in sorted(revenue_by_month.items()):
+        print(f"{month}: {rev:.2f}")
+
+    # Stock alerts
+    products = read_products()
+    alerts = [(pid, p["stock"]) for pid, p in products.items() if p["stock"] <= 5]
+    if alerts:
+        print("\nStock alerts (<=5):")
+        for pid, stock in alerts:
+            print(f"{pid}: {stock}")
+
+# ---------- Main CLI ----------
+def main():
+    ensure_files()
+    products = read_products()
+    while True:
+        print("\nInventory Management — Menu")
+        print("1) Add product")
+        print("2) Update stock")
+        print("3) Record sale")
+        print("4) View products")
+        print("5) Generate reports")
+        print("6) Exit")
+        choice = input("Choose (1-6): ").strip()
+        if choice == "1":
+            add_product(products)
+        elif choice == "2":
+            update_stock(products)
+        elif choice == "3":
+            record_sale(products)
+        elif choice == "4":
+            view_products(products)
+        elif choice == "5":
+            generate_reports()
+        elif choice == "6":
+            print("Goodbye.")
+            break
+        else:
+            print("Invalid choice.")
+
+if __name__ == "__main__":
+    main()
